@@ -1,46 +1,78 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { UploadCloud, Loader2, CheckCircle2 } from 'lucide-react';
 import imageCompression from 'browser-image-compression';
 import { supabase } from '@/lib/supabase';
+import { PropertyItem } from './JioShuffleGallery';
 
 export default function Uploader() {
   const [file, setFile] = useState<File | null>(null);
   const [caption, setCaption] = useState('');
-  const [propertyType, setPropertyType] = useState<'residency' | 'lake-inn'>('residency');
+  const [propertyType, setPropertyType] = useState<string>('');
+  const [properties, setProperties] = useState<PropertyItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
+  useEffect(() => {
+    async function loadProperties() {
+      const { data } = await supabase.from('properties').select('*').order('name');
+      if (data && data.length > 0) {
+        setProperties(data);
+        setPropertyType(data[0].slug);
+      }
+    }
+    loadProperties();
+  }, []);
+
   const handleUpload = async () => {
-    if (!file) return;
+    if (!file || !propertyType) return;
     setUploading(true);
     setStatus('idle');
 
     try {
-      // 1. Compress Image (Target: < 1MB)
-      const options = {
-        maxSizeMB: 0.9,
-        maxWidthOrHeight: 1920,
-        useWebWorker: true,
-      };
-      const compressedFile = await imageCompression(file, options);
+      let uploadFile = file;
+      const isVideo = file.type.startsWith('video/');
+
+      if (!isVideo) {
+        // 1. Compress Image (Target: < 1MB)
+        const options = {
+          maxSizeMB: 0.9,
+          maxWidthOrHeight: 1920,
+          useWebWorker: true,
+        };
+        uploadFile = await imageCompression(file, options);
+      }
 
       // 2. Upload to Supabase Storage
-      const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '')}`;
+      const fileName = `${propertyType}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '')}`;
+      
+      let publicUrl = '';
+      
+      // Try to upload to the single 'gallery' bucket
       const { data: storageData, error: storageError } = await supabase.storage
-        .from(propertyType)
-        .upload(fileName, compressedFile, {
+        .from('gallery')
+        .upload(fileName, uploadFile, {
           cacheControl: '3600',
           upsert: false,
         });
 
-      if (storageError) throw storageError;
-
-      // 3. Get Public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from(propertyType)
-        .getPublicUrl(fileName);
+      if (storageError) {
+        console.warn("Upload to 'gallery' bucket failed, attempting legacy bucket upload.", storageError);
+        // Fallback to old property-named bucket
+        const legacyFileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '')}`;
+        const { error: legacyError } = await supabase.storage
+          .from(propertyType)
+          .upload(legacyFileName, uploadFile, { cacheControl: '3600', upsert: false });
+          
+        if (legacyError) throw legacyError;
+        
+        const { data: { publicUrl: legacyUrl } } = supabase.storage.from(propertyType).getPublicUrl(legacyFileName);
+        publicUrl = legacyUrl;
+      } else {
+        const { data: { publicUrl: newUrl } } = supabase.storage.from('gallery').getPublicUrl(fileName);
+        publicUrl = newUrl;
+      }
 
       // 4. Insert into Metadata Database
       const { error: dbError } = await supabase
@@ -57,6 +89,8 @@ export default function Uploader() {
       setStatus('success');
       setFile(null);
       setCaption('');
+      
+      setTimeout(() => setStatus('idle'), 3000);
     } catch (error) {
       console.error('Upload Error:', error);
       setStatus('error');
@@ -69,7 +103,7 @@ export default function Uploader() {
     <div className="w-full max-w-md mx-auto p-8 rounded-3xl backdrop-blur-xl bg-white/5 border border-white/10 shadow-2xl shadow-black/50">
       <h3 className="text-2xl font-light text-white mb-6 flex items-center gap-2">
         <UploadCloud className="w-6 h-6 text-emerald-400" />
-        Upload Image
+        Upload Media
       </h3>
 
       <div className="space-y-5">
@@ -77,19 +111,21 @@ export default function Uploader() {
           <label className="block text-sm text-slate-300 mb-2">Property</label>
           <select 
             value={propertyType}
-            onChange={(e) => setPropertyType(e.target.value as any)}
+            onChange={(e) => setPropertyType(e.target.value)}
             className="w-full bg-slate-800/50 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 appearance-none"
           >
-            <option value="residency">Quilion Residency</option>
-            <option value="lake-inn">Quilion Lake Inn</option>
+            {properties.map(prop => (
+              <option key={prop.id} value={prop.slug}>{prop.name}</option>
+            ))}
+            {properties.length === 0 && <option value="">Loading properties...</option>}
           </select>
         </div>
 
         <div>
-          <label className="block text-sm text-slate-300 mb-2">Image</label>
+          <label className="block text-sm text-slate-300 mb-2">Media</label>
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,video/*"
             onChange={(e) => setFile(e.target.files?.[0] || null)}
             className="w-full text-sm text-slate-400 file:mr-4 file:py-3 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-medium file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20 transition-all cursor-pointer"
           />
@@ -106,9 +142,13 @@ export default function Uploader() {
           />
         </div>
 
+        {status === 'error' && (
+          <p className="text-red-400 text-sm">Error uploading. Please try again.</p>
+        )}
+
         <button
           onClick={handleUpload}
-          disabled={!file || uploading}
+          disabled={!file || uploading || !propertyType}
           className="w-full mt-4 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-white font-medium hover:from-emerald-500 hover:to-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-emerald-900/50 flex justify-center items-center gap-2"
         >
           {uploading ? (
