@@ -6,10 +6,22 @@ import imageCompression from 'browser-image-compression';
 import { supabase } from '@/lib/supabase';
 import { PropertyItem } from './JioShuffleGallery';
 
-export default function Uploader() {
+interface UploaderProps {
+  propertySlug?: string;
+  onSuccess?: () => void;
+}
+
+export default function Uploader({ propertySlug, onSuccess }: UploaderProps = {}) {
   const [file, setFile] = useState<File | null>(null);
   const [caption, setCaption] = useState('');
-  const [propertyType, setPropertyType] = useState<string>('');
+  const [propertyType, setPropertyType] = useState<string>(propertySlug || '');
+
+  useEffect(() => {
+    if (propertySlug) {
+      setPropertyType(propertySlug);
+    }
+  }, [propertySlug]);
+
   const [properties, setProperties] = useState<PropertyItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -19,11 +31,13 @@ export default function Uploader() {
       const { data } = await supabase.from('properties').select('*').order('name');
       if (data && data.length > 0) {
         setProperties(data);
-        setPropertyType(data[0].slug);
+        if (!propertyType && !propertySlug) {
+          setPropertyType(data[0].slug);
+        }
       }
     }
     loadProperties();
-  }, []);
+  }, [propertyType, propertySlug]);
 
   const handleUpload = async () => {
     if (!file || !propertyType) return;
@@ -90,6 +104,8 @@ export default function Uploader() {
       setFile(null);
       setCaption('');
       
+      if (onSuccess) onSuccess();
+
       setTimeout(() => setStatus('idle'), 3000);
     } catch (error) {
       console.error('Upload Error:', error);
