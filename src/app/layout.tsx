@@ -14,7 +14,13 @@ const montserrat = Montserrat({
 
 export const metadata: Metadata = {
   title: "Quilon Group",
-  description: "Modern Organic Luxury Hospitality & Real Estate",
+  description: "Where Architecture Meets Ambition and Technology Meets Hospitality.",
+  openGraph: {
+    title: "Quilon Group",
+    description: "Where Architecture Meets Ambition and Technology Meets Hospitality.",
+    siteName: "Quilon Group",
+    type: "website",
+  },
 };
 
 export default function RootLayout({
