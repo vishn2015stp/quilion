@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -84,6 +84,19 @@ export default function JioShuffleGallery({ initialItems, mode = 'photos' }: Jio
       setZoomedImage(item.image_url || item.cover_image_url);
     }
   };
+
+  useEffect(() => {
+    if (!zoomedImage) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        setZoomedImage(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [zoomedImage]);
 
   return (
     <>
@@ -224,6 +237,7 @@ export default function JioShuffleGallery({ initialItems, mode = 'photos' }: Jio
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[100] flex items-center justify-center bg-ivory-100/95 backdrop-blur-xl p-4"
             onClick={() => setZoomedImage(null)}
+            onWheel={() => setZoomedImage(null)}
           >
             <button
               onClick={() => setZoomedImage(null)}
@@ -238,6 +252,16 @@ export default function JioShuffleGallery({ initialItems, mode = 'photos' }: Jio
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
               className="relative w-full max-w-6xl h-full max-h-[90vh]"
               onClick={(e) => e.stopPropagation()}
+              onPanEnd={(e, info) => {
+                const swipeThreshold = 50;
+                const velocityThreshold = 400;
+                if (
+                  Math.abs(info.offset.x) > swipeThreshold || Math.abs(info.velocity.x) > velocityThreshold ||
+                  Math.abs(info.offset.y) > swipeThreshold || Math.abs(info.velocity.y) > velocityThreshold
+                ) {
+                  setZoomedImage(null);
+                }
+              }}
             >
               {isVideoUrl(zoomedImage) ? (
                 <video src={zoomedImage} controls autoPlay className="w-full h-full object-contain drop-shadow-2xl" />

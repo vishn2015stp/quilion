@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import Uploader from '@/components/Uploader';
 import { supabase } from '@/lib/supabase';
-import { Lock, Plus, LogOut, Image as ImageIcon, Trash2, Edit2, Check, X, ArrowLeft, Settings } from 'lucide-react';
+import { Lock, Plus, LogOut, Image as ImageIcon, Trash2, Edit2, Check, X, ArrowLeft, Settings, Loader2 } from 'lucide-react';
 import Image from 'next/image';
+import imageCompression from 'browser-image-compression';
 
 type Property = {
   id: string;
@@ -14,6 +15,7 @@ type Property = {
   contact_email?: string;
   contact_phone?: string;
   contact_whatsapp?: string;
+  location_url?: string;
 };
 
 type Photo = {
@@ -34,9 +36,14 @@ export default function ManagementPage() {
   const [properties, setProperties] = useState<Property[]>([]);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [editPhotoId, setEditPhotoId] = useState<string | null>(null);
+  const [editPhotoCaption, setEditPhotoCaption] = useState('');
   
   const [newPropName, setNewPropName] = useState('');
   const [newPropSlug, setNewPropSlug] = useState('');
+  const [contactLocationUrl, setContactLocationUrl] = useState('');
+  const [coverImageFile, setCoverImageFile] = useState<File | null>(null);
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
   
   // New Contact Fields
   const [contactEmail, setContactEmail] = useState('');
@@ -48,6 +55,9 @@ export default function ManagementPage() {
   const [editContactEmail, setEditContactEmail] = useState('');
   const [editContactPhone, setEditContactPhone] = useState('');
   const [editContactWhatsapp, setEditContactWhatsapp] = useState('');
+  const [editLocationUrl, setEditLocationUrl] = useState('');
+  const [editCoverImageFile, setEditCoverImageFile] = useState<File | null>(null);
+  const [isEditingCover, setIsEditingCover] = useState(false);
 
   // Global Contact Settings
   const [globalEmail, setGlobalEmail] = useState('');
@@ -132,18 +142,41 @@ export default function ManagementPage() {
     }
   };
 
+  const uploadCoverImage = async (file: File, slug: string) => {
+    let uploadFile = file;
+    const isVideoFile = file.type.startsWith('video/');
+
+    if (!isVideoFile) {
+      const options = { maxSizeMB: 0.9, maxWidthOrHeight: 1920, useWebWorker: true };
+      uploadFile = await imageCompression(file, options);
+    }
+    const fileName = `${slug}/cover-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '')}`;
+    const { error: storageError } = await supabase.storage.from('gallery').upload(fileName, uploadFile, { cacheControl: '3600', upsert: false });
+    if (storageError) throw storageError;
+    const { data: { publicUrl } } = supabase.storage.from('gallery').getPublicUrl(fileName);
+    return publicUrl;
+  };
+
   // Create Property
   const handleCreateProperty = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPropName || !newPropSlug) return;
     
     try {
+      setIsUploadingCover(true);
+      let uploadedCoverUrl = '';
+      if (coverImageFile) {
+        uploadedCoverUrl = await uploadCoverImage(coverImageFile, newPropSlug);
+      }
+
       const { error } = await supabase.from('properties').insert([{
         name: newPropName,
         slug: newPropSlug,
         contact_email: contactEmail,
         contact_phone: contactPhone,
-        contact_whatsapp: contactWhatsapp
+        contact_whatsapp: contactWhatsapp,
+        location_url: contactLocationUrl,
+        ...(uploadedCoverUrl ? { cover_image_url: uploadedCoverUrl } : {})
       }]);
       if (error) throw error;
       
@@ -152,10 +185,14 @@ export default function ManagementPage() {
       setContactEmail('');
       setContactPhone('');
       setContactWhatsapp('');
+      setContactLocationUrl('');
+      setCoverImageFile(null);
       fetchProperties();
     } catch (err) {
       console.error(err);
       alert('Error creating property');
+    } finally {
+      setIsUploadingCover(false);
     }
   };
 
@@ -202,21 +239,44 @@ export default function ManagementPage() {
     }
   };
 
-  // Save Edits
-  const handleSaveEdits = async (id: string) => {
+  const handleSavePhotoCaption = async (id: string) => {
     try {
+      const { error } = await supabase.from('gallery_metadata').update({ caption: editPhotoCaption }).eq('id', id);
+      if (error) throw error;
+      setEditPhotoId(null);
+      if (selectedProperty) fetchPhotos(selectedProperty.slug);
+    } catch (err) {
+      console.error(err);
+      alert('Error updating caption');
+    }
+  };
+
+  // Save Edits
+  const handleSaveEdits = async (id: string, slug: string) => {
+    try {
+      setIsEditingCover(true);
+      let uploadedCoverUrl = '';
+      if (editCoverImageFile) {
+        uploadedCoverUrl = await uploadCoverImage(editCoverImageFile, slug);
+      }
+
       const { error } = await supabase.from('properties').update({
         contact_email: editContactEmail,
         contact_phone: editContactPhone,
-        contact_whatsapp: editContactWhatsapp
+        contact_whatsapp: editContactWhatsapp,
+        location_url: editLocationUrl,
+        ...(uploadedCoverUrl ? { cover_image_url: uploadedCoverUrl } : {})
       }).eq('id', id);
       if (error) throw error;
       
       setEditPropId(null);
+      setEditCoverImageFile(null);
       fetchProperties();
     } catch (err) {
       console.error(err);
       alert('Error saving details');
+    } finally {
+      setIsEditingCover(false);
     }
   };
 
@@ -225,6 +285,8 @@ export default function ManagementPage() {
     setEditContactEmail(prop.contact_email || '');
     setEditContactPhone(prop.contact_phone || '');
     setEditContactWhatsapp(prop.contact_whatsapp || '');
+    setEditLocationUrl(prop.location_url || '');
+    setEditCoverImageFile(null);
   };
 
   const handleUpdateGlobalContacts = async (e: React.FormEvent) => {
@@ -440,9 +502,30 @@ export default function ManagementPage() {
                     ) : (
                       <Image src={photo.image_url} alt="gallery" fill className="object-cover" sizes="200px" />
                     )}
-                    <button onClick={() => handleDeletePhoto(photo.id, photo.bucket_path)} className="absolute top-2 right-2 p-2 bg-red-500/80 hover:bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                      <button onClick={() => { setEditPhotoId(photo.id); setEditPhotoCaption(photo.caption || ''); }} className="p-2 bg-emerald-500/80 hover:bg-emerald-500 text-white rounded-full">
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleDeletePhoto(photo.id, photo.bucket_path)} className="p-2 bg-red-500/80 hover:bg-red-500 text-white rounded-full">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {editPhotoId === photo.id ? (
+                      <div className="absolute inset-0 bg-slate-900/95 p-3 flex flex-col justify-center gap-2 z-20">
+                        <label className="text-xs text-slate-400">Edit Caption</label>
+                        <textarea 
+                          value={editPhotoCaption} 
+                          onChange={e => setEditPhotoCaption(e.target.value)}
+                          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white resize-none h-20 focus:outline-none focus:border-emerald-500"
+                        />
+                        <div className="flex justify-end gap-2 mt-1">
+                          <button onClick={() => setEditPhotoId(null)} className="p-1 hover:bg-white/10 rounded text-slate-400"><X className="w-4 h-4"/></button>
+                          <button onClick={() => handleSavePhotoCaption(photo.id)} className="p-1 hover:bg-emerald-500/20 text-emerald-400 rounded"><Check className="w-4 h-4"/></button>
+                        </div>
+                      </div>
+                    ) : (
+                      photo.caption && <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-2 pt-8 text-xs text-white truncate pointer-events-none">{photo.caption}</div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -476,8 +559,16 @@ export default function ManagementPage() {
                   <label className="text-xs text-slate-400 mb-1 block">WhatsApp Number (Optional)</label>
                   <input type="tel" value={contactWhatsapp} onChange={e => setContactWhatsapp(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" />
                 </div>
-                <button type="submit" className="mt-2 w-full bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg py-2 font-medium transition-colors">
-                  Create Property
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Google Maps URL (Optional)</label>
+                  <input type="url" value={contactLocationUrl} onChange={e => setContactLocationUrl(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Cover Image/Video (Optional)</label>
+                  <input type="file" accept="image/*,video/*" onChange={e => setCoverImageFile(e.target.files?.[0] || null)} className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-medium file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20 transition-all cursor-pointer" />
+                </div>
+                <button type="submit" disabled={isUploadingCover} className="mt-2 w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg py-2 font-medium transition-colors flex items-center justify-center gap-2">
+                  {isUploadingCover ? <><Loader2 className="w-4 h-4 animate-spin"/> Creating...</> : 'Create Property'}
                 </button>
               </form>
             </div>
@@ -509,26 +600,35 @@ export default function ManagementPage() {
                     
                     {/* Edit Contact Details Section */}
                     {editPropId === prop.id ? (
-                      <div className="pt-4 border-t border-white/10 grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="pt-4 border-t border-white/10 grid grid-cols-1 md:grid-cols-2 gap-3">
                         <input value={editContactEmail} onChange={e => setEditContactEmail(e.target.value)} placeholder="Email" className="bg-slate-900/50 border border-slate-700 rounded px-3 py-1 text-sm text-white focus:border-emerald-500" />
                         <input value={editContactPhone} onChange={e => setEditContactPhone(e.target.value)} placeholder="Phone" className="bg-slate-900/50 border border-slate-700 rounded px-3 py-1 text-sm text-white focus:border-emerald-500" />
                         <input value={editContactWhatsapp} onChange={e => setEditContactWhatsapp(e.target.value)} placeholder="WhatsApp" className="bg-slate-900/50 border border-slate-700 rounded px-3 py-1 text-sm text-white focus:border-emerald-500" />
-                        <div className="md:col-span-3 flex justify-end gap-2 mt-2">
+                        <input value={editLocationUrl} onChange={e => setEditLocationUrl(e.target.value)} placeholder="Google Maps URL" className="bg-slate-900/50 border border-slate-700 rounded px-3 py-1 text-sm text-white focus:border-emerald-500" />
+                        <div className="md:col-span-2">
+                          <label className="text-xs text-slate-400 mb-1 block">New Cover Media (Leave blank to keep current)</label>
+                          <input type="file" accept="image/*,video/*" onChange={e => setEditCoverImageFile(e.target.files?.[0] || null)} className="w-full text-xs text-slate-400 file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-medium file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20 transition-all cursor-pointer" />
+                        </div>
+                        <div className="md:col-span-2 flex justify-end gap-2 mt-2">
                           <button onClick={() => setEditPropId(null)} className="p-1 hover:bg-white/10 rounded text-slate-400"><X className="w-4 h-4"/></button>
-                          <button onClick={() => handleSaveEdits(prop.id)} className="p-1 hover:bg-emerald-500/20 text-emerald-400 rounded"><Check className="w-4 h-4"/></button>
+                          <button onClick={() => handleSaveEdits(prop.id, prop.slug)} disabled={isEditingCover} className="p-1 hover:bg-emerald-500/20 text-emerald-400 rounded disabled:opacity-50">{isEditingCover ? <Loader2 className="w-4 h-4 animate-spin"/> : <Check className="w-4 h-4"/>}</button>
                         </div>
                       </div>
                     ) : (
-                      <div className="pt-4 border-t border-white/10 flex items-center justify-between text-sm text-slate-400">
-                        <div className="flex gap-4">
+                      <div className="pt-4 border-t border-white/10 flex flex-col md:flex-row items-start md:items-center justify-between text-sm text-slate-400 gap-2">
+                        <div className="flex flex-wrap gap-x-4 gap-y-1">
                           <span>{prop.contact_email || 'No email'}</span>
-                          <span>•</span>
+                          <span className="hidden md:inline">•</span>
                           <span>{prop.contact_phone || 'No phone'}</span>
-                          <span>•</span>
+                          <span className="hidden md:inline">•</span>
                           <span>{prop.contact_whatsapp ? 'WhatsApp set' : 'No WA'}</span>
+                          <span className="hidden md:inline">•</span>
+                          <span>{prop.location_url ? 'Map set' : 'No Map'}</span>
+                          <span className="hidden md:inline">•</span>
+                          <span>{prop.cover_image_url ? 'Cover set' : 'No Cover'}</span>
                         </div>
-                        <button onClick={() => startEditing(prop)} className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 text-xs">
-                          <Edit2 className="w-3 h-3" /> Edit Contacts
+                        <button onClick={() => startEditing(prop)} className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 text-xs whitespace-nowrap">
+                          <Edit2 className="w-3 h-3" /> Edit Details
                         </button>
                       </div>
                     )}
