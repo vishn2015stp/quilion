@@ -86,16 +86,23 @@ export default function JioShuffleGallery({ initialItems, mode = 'photos' }: Jio
   };
 
   useEffect(() => {
-    if (!zoomedImage) return;
-
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (['Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-        setZoomedImage(null);
+      if (zoomedImage) {
+        if (['Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+          setZoomedImage(null);
+        }
+      } else {
+        if (['ArrowLeft', 'ArrowUp'].includes(e.key)) {
+          handleShuffle('next');
+        } else if (['ArrowRight', 'ArrowDown'].includes(e.key)) {
+          handleShuffle('prev');
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomedImage]);
 
   return (

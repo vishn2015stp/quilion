@@ -52,6 +52,8 @@ export default function ManagementPage() {
 
   // Editing Contact Fields
   const [editPropId, setEditPropId] = useState<string | null>(null);
+  const [editPropName, setEditPropName] = useState('');
+  const [editPropSlug, setEditPropSlug] = useState('');
   const [editContactEmail, setEditContactEmail] = useState('');
   const [editContactPhone, setEditContactPhone] = useState('');
   const [editContactWhatsapp, setEditContactWhatsapp] = useState('');
@@ -261,6 +263,8 @@ export default function ManagementPage() {
       }
 
       const { error } = await supabase.from('properties').update({
+        name: editPropName,
+        slug: editPropSlug,
         contact_email: editContactEmail,
         contact_phone: editContactPhone,
         contact_whatsapp: editContactWhatsapp,
@@ -282,6 +286,8 @@ export default function ManagementPage() {
 
   const startEditing = (prop: Property) => {
     setEditPropId(prop.id);
+    setEditPropName(prop.name || '');
+    setEditPropSlug(prop.slug || '');
     setEditContactEmail(prop.contact_email || '');
     setEditContactPhone(prop.contact_phone || '');
     setEditContactWhatsapp(prop.contact_whatsapp || '');
@@ -601,6 +607,8 @@ export default function ManagementPage() {
                     {/* Edit Contact Details Section */}
                     {editPropId === prop.id ? (
                       <div className="pt-4 border-t border-white/10 grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <input value={editPropName} onChange={e => setEditPropName(e.target.value)} placeholder="Property Name" className="bg-slate-900/50 border border-slate-700 rounded px-3 py-1 text-sm text-white focus:border-emerald-500" />
+                        <input value={editPropSlug} onChange={e => setEditPropSlug(e.target.value)} placeholder="URL Slug" className="bg-slate-900/50 border border-slate-700 rounded px-3 py-1 text-sm text-white focus:border-emerald-500" />
                         <input value={editContactEmail} onChange={e => setEditContactEmail(e.target.value)} placeholder="Email" className="bg-slate-900/50 border border-slate-700 rounded px-3 py-1 text-sm text-white focus:border-emerald-500" />
                         <input value={editContactPhone} onChange={e => setEditContactPhone(e.target.value)} placeholder="Phone" className="bg-slate-900/50 border border-slate-700 rounded px-3 py-1 text-sm text-white focus:border-emerald-500" />
                         <input value={editContactWhatsapp} onChange={e => setEditContactWhatsapp(e.target.value)} placeholder="WhatsApp" className="bg-slate-900/50 border border-slate-700 rounded px-3 py-1 text-sm text-white focus:border-emerald-500" />
