@@ -161,17 +161,29 @@ export default function ManagementPage() {
 
   // Delete Property
   const handleDeleteProperty = async (id: string, slug: string) => {
-    if (!confirm('Are you sure you want to delete this property and all its photos?')) return;
-    
     try {
-      // Delete photos from DB
-      await supabase.from('gallery_metadata').delete().eq('property_type', slug);
+      // First check if there are any photos
+      const { count, error: countError } = await supabase
+        .from('gallery_metadata')
+        .select('*', { count: 'exact', head: true })
+        .eq('property_type', slug);
+        
+      if (countError) throw countError;
+      
+      if (count && count > 0) {
+        alert('Cannot delete property: Please delete all media inside this property first.');
+        return;
+      }
+
+      if (!confirm('Are you sure you want to delete this empty property?')) return;
+
       // Delete property
       await supabase.from('properties').delete().eq('id', id);
       fetchProperties();
       if (selectedProperty?.id === id) setSelectedProperty(null);
     } catch (err) {
       console.error(err);
+      alert('Error deleting property');
     }
   };
 
