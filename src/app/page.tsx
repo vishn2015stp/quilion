@@ -56,9 +56,9 @@ export default async function Home() {
         <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-white/60 via-ivory-100/50 to-transparent pointer-events-none" />
         
         <div className="container mx-auto relative z-10 w-full flex flex-col items-center h-full">
-          <div className="text-center mb-4 md:mb-8 mt-8 hidden sm:block">
-            <h2 className="text-xl md:text-2xl font-serif text-charcoal-800 drop-shadow-sm">
-              Where Architecture Meets Ambition and <span className="font-semibold text-emerald-800">Technology Meets Hospitality.</span>
+          <div className="text-center mb-4 md:mb-8 mt-4 md:mt-8 w-full px-4">
+            <h2 className="text-base sm:text-xl md:text-2xl font-serif text-charcoal-800 drop-shadow-sm leading-relaxed">
+              Where Architecture Meets Ambition and <br className="block sm:hidden" /><span className="font-semibold text-emerald-800">Technology Meets Hospitality.</span>
             </h2>
           </div>
 
