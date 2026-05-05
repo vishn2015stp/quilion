@@ -49,6 +49,13 @@ export default function ManagementPage() {
   const [editContactPhone, setEditContactPhone] = useState('');
   const [editContactWhatsapp, setEditContactWhatsapp] = useState('');
 
+  // Global Contact Settings
+  const [globalEmail, setGlobalEmail] = useState('');
+  const [globalPhone, setGlobalPhone] = useState('');
+  const [globalWhatsapp, setGlobalWhatsapp] = useState('');
+  const [isUpdatingGlobalContacts, setIsUpdatingGlobalContacts] = useState(false);
+  const [globalContactsMessage, setGlobalContactsMessage] = useState('');
+
   // Password Change
   const [showSettings, setShowSettings] = useState(false);
   const [oldAdminPassword, setOldAdminPassword] = useState('');
@@ -75,6 +82,7 @@ export default function ManagementPage() {
       if (expectedPassword === passwordInput) {
         setIsAuthenticated(true);
         fetchProperties();
+        fetchAdminSettings();
       } else {
         setAuthError('Incorrect password');
       }
@@ -96,6 +104,19 @@ export default function ManagementPage() {
       const { data, error } = await supabase.from('properties').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       setProperties(data || []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchAdminSettings = async () => {
+    try {
+      const { data, error } = await supabase.from('admin_settings').select('contact_email, contact_phone, contact_whatsapp').eq('id', 1).maybeSingle();
+      if (data) {
+        setGlobalEmail(data.contact_email || '');
+        setGlobalPhone(data.contact_phone || '');
+        setGlobalWhatsapp(data.contact_whatsapp || '');
+      }
     } catch (err) {
       console.error(err);
     }
@@ -192,6 +213,27 @@ export default function ManagementPage() {
     setEditContactEmail(prop.contact_email || '');
     setEditContactPhone(prop.contact_phone || '');
     setEditContactWhatsapp(prop.contact_whatsapp || '');
+  };
+
+  const handleUpdateGlobalContacts = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsUpdatingGlobalContacts(true);
+    setGlobalContactsMessage('');
+    try {
+      const { error } = await supabase.from('admin_settings').update({
+        contact_email: globalEmail,
+        contact_phone: globalPhone,
+        contact_whatsapp: globalWhatsapp
+      }).eq('id', 1);
+      
+      if (error) throw error;
+      setGlobalContactsMessage('Contact details updated successfully!');
+      setTimeout(() => setGlobalContactsMessage(''), 3000);
+    } catch (err: any) {
+      setGlobalContactsMessage(err?.message || 'Failed to update contact details');
+    } finally {
+      setIsUpdatingGlobalContacts(false);
+    }
   };
 
   const handlePasswordChange = async (e: React.FormEvent) => {
@@ -317,6 +359,43 @@ export default function ManagementPage() {
               {isUpdatingPassword ? 'Updating...' : 'Update Password'}
             </button>
           </form>
+
+          <div className="mt-8 pt-6 border-t border-white/10">
+            <h4 className="text-lg font-light text-white mb-4">Main Page Contact Details</h4>
+            <form onSubmit={handleUpdateGlobalContacts} className="flex flex-col gap-4 max-w-md">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Main Email</label>
+                <input 
+                  type="email" 
+                  value={globalEmail} 
+                  onChange={e => setGlobalEmail(e.target.value)} 
+                  className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" 
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Main Phone</label>
+                <input 
+                  type="tel" 
+                  value={globalPhone} 
+                  onChange={e => setGlobalPhone(e.target.value)} 
+                  className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" 
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Main WhatsApp</label>
+                <input 
+                  type="tel" 
+                  value={globalWhatsapp} 
+                  onChange={e => setGlobalWhatsapp(e.target.value)} 
+                  className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" 
+                />
+              </div>
+              {globalContactsMessage && <p className="text-sm text-emerald-400">{globalContactsMessage}</p>}
+              <button type="submit" disabled={isUpdatingGlobalContacts} className="bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg px-4 py-2 font-medium transition-colors disabled:opacity-50 mt-2">
+                {isUpdatingGlobalContacts ? 'Saving...' : 'Save Contact Details'}
+              </button>
+            </form>
+          </div>
         </div>
       )}
 
