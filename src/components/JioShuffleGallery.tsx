@@ -259,8 +259,11 @@ export default function JioShuffleGallery({ initialItems, mode = 'photos' }: Jio
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
               className="relative w-full max-w-6xl h-full max-h-[90vh]"
               onClick={(e) => e.stopPropagation()}
-              onPanEnd={(e, info) => {
-                const swipeThreshold = 50;
+              drag
+              dragConstraints={{ top: 0, bottom: 0, left: 0, right: 0 }}
+              dragElastic={0.8}
+              onDragEnd={(e, info) => {
+                const swipeThreshold = 60;
                 const velocityThreshold = 400;
                 if (
                   Math.abs(info.offset.x) > swipeThreshold || Math.abs(info.velocity.x) > velocityThreshold ||
