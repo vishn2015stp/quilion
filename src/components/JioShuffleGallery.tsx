@@ -218,7 +218,7 @@ export default function JioShuffleGallery({ initialItems, mode = 'photos' }: Jio
                   <h3 className={`text-2xl font-medium drop-shadow-sm flex items-center gap-4 font-serif ${
                     mode === 'folders' ? 'text-charcoal-900' : 'text-ivory-50'
                   }`}>
-                    {title || (mode === 'folders' ? 'Untitled Property' : 'Untitled Photo')}
+                    {title || (mode === 'folders' ? 'Untitled Property' : '')}
                   </h3>
                 </div>
 
