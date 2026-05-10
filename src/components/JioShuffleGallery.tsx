@@ -27,6 +27,10 @@ const isVideoUrl = (url?: string) => url?.match(/\.(mp4|webm|ogg|mov)(\?.*)?$/i)
 export default function JioShuffleGallery({ initialItems, mode = 'photos' }: JioShuffleGalleryProps) {
   const [items, setItems] = useState(initialItems);
   const [isCoolingDown, setIsCoolingDown] = useState(false);
+
+  useEffect(() => {
+    setItems(initialItems);
+  }, [initialItems]);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const router = useRouter();
   const isDragging = useRef(false);

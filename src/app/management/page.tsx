@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { Lock, Plus, LogOut, Image as ImageIcon, Trash2, Edit2, Check, X, ArrowLeft, Settings, Loader2 } from 'lucide-react';
 import Image from 'next/image';
 import imageCompression from 'browser-image-compression';
+import { useRouter } from 'next/navigation';
 
 type Property = {
   id: string;
@@ -29,6 +30,7 @@ type Photo = {
 const isVideo = (url?: string) => url?.match(/\.(mp4|webm|ogg|mov)(\?.*)?$/i);
 
 export default function ManagementPage() {
+  const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState('');
@@ -190,6 +192,7 @@ export default function ManagementPage() {
       setContactLocationUrl('');
       setCoverImageFile(null);
       fetchProperties();
+      router.refresh();
     } catch (err) {
       console.error(err);
       alert('Error creating property');
@@ -220,6 +223,7 @@ export default function ManagementPage() {
       await supabase.from('properties').delete().eq('id', id);
       fetchProperties();
       if (selectedProperty?.id === id) setSelectedProperty(null);
+      router.refresh();
     } catch (err) {
       console.error(err);
       alert('Error deleting property');
@@ -236,6 +240,7 @@ export default function ManagementPage() {
       }
       await supabase.from('gallery_metadata').delete().eq('id', id);
       if (selectedProperty) fetchPhotos(selectedProperty.slug);
+      router.refresh();
     } catch (err) {
       console.error(err);
     }
@@ -243,13 +248,26 @@ export default function ManagementPage() {
 
   const handleSavePhotoCaption = async (id: string) => {
     try {
-      const { error } = await supabase.from('gallery_metadata').update({ caption: editPhotoCaption }).eq('id', id);
-      if (error) throw error;
+      // Optimistic UI update
+      setPhotos(prev => prev.map(p => p.id === id ? { ...p, caption: editPhotoCaption } : p));
       setEditPhotoId(null);
-      if (selectedProperty) fetchPhotos(selectedProperty.slug);
-    } catch (err) {
+
+      const { data, error } = await supabase.from('gallery_metadata').update({ caption: editPhotoCaption }).eq('id', id).select();
+      if (error) throw error;
+      
+      if (data && data.length === 0) {
+        alert('Update failed: No rows were changed. This usually means your Supabase RLS policies do not allow UPDATE operations. Please enable UPDATE for anon users on the gallery_metadata table.');
+        // Revert optimistic update
+        if (selectedProperty) fetchPhotos(selectedProperty.slug);
+        return;
+      }
+      
+      router.refresh();
+    } catch (err: any) {
       console.error(err);
-      alert('Error updating caption');
+      alert('Error updating caption: ' + (err?.message || 'Unknown error'));
+      // Revert if error occurs
+      if (selectedProperty) fetchPhotos(selectedProperty.slug);
     }
   };
 
@@ -262,7 +280,7 @@ export default function ManagementPage() {
         uploadedCoverUrl = await uploadCoverImage(editCoverImageFile, slug);
       }
 
-      const { error } = await supabase.from('properties').update({
+      const { data, error } = await supabase.from('properties').update({
         name: editPropName,
         slug: editPropSlug,
         contact_email: editContactEmail,
@@ -270,12 +288,23 @@ export default function ManagementPage() {
         contact_whatsapp: editContactWhatsapp,
         location_url: editLocationUrl,
         ...(uploadedCoverUrl ? { cover_image_url: uploadedCoverUrl } : {})
-      }).eq('id', id);
+      }).eq('id', id).select();
+      
       if (error) throw error;
+
+      if (data && data.length === 0) {
+        alert('Update failed: No rows were changed. This usually means your Supabase RLS policies do not allow UPDATE operations. Please enable UPDATE for anon users on the properties table.');
+        setIsEditingCover(false);
+        return;
+      }
       
       setEditPropId(null);
       setEditCoverImageFile(null);
       fetchProperties();
+      router.refresh();
+      if (selectedProperty?.id === id) {
+        setSelectedProperty(prev => prev ? { ...prev, name: editPropName, slug: editPropSlug, contact_email: editContactEmail, contact_phone: editContactPhone, contact_whatsapp: editContactWhatsapp, location_url: editLocationUrl, ...(uploadedCoverUrl ? { cover_image_url: uploadedCoverUrl } : {}) } : null);
+      }
     } catch (err) {
       console.error(err);
       alert('Error saving details');
@@ -300,13 +329,16 @@ export default function ManagementPage() {
     setIsUpdatingGlobalContacts(true);
     setGlobalContactsMessage('');
     try {
-      const { error } = await supabase.from('admin_settings').update({
+      const { data, error } = await supabase.from('admin_settings').update({
         contact_email: globalEmail,
         contact_phone: globalPhone,
         contact_whatsapp: globalWhatsapp
-      }).eq('id', 1);
+      }).eq('id', 1).select();
       
       if (error) throw error;
+      if (data && data.length === 0) {
+        throw new Error('Update failed: No rows changed. Check your Supabase RLS policies for admin_settings table (enable UPDATE).');
+      }
       setGlobalContactsMessage('Contact details updated successfully!');
       setTimeout(() => setGlobalContactsMessage(''), 3000);
     } catch (err: any) {
@@ -339,8 +371,11 @@ export default function ManagementPage() {
       }
 
       // Update to new password
-      const { error: updateError } = await supabase.from('admin_settings').update({ admin_password: newAdminPassword }).eq('id', 1);
+      const { data: updateData, error: updateError } = await supabase.from('admin_settings').update({ admin_password: newAdminPassword }).eq('id', 1).select();
       if (updateError) throw updateError;
+      if (updateData && updateData.length === 0) {
+        throw new Error('Password update failed: No rows changed. Check your Supabase RLS policies for admin_settings table (enable UPDATE).');
+      }
       
       alert('Password updated successfully!');
       setShowSettings(false);
@@ -356,24 +391,24 @@ export default function ManagementPage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="bg-slate-800/50 p-8 rounded-3xl border border-white/10 max-w-md w-full shadow-2xl">
+      <div className="h-screen bg-ivory-50 flex items-center justify-center p-4">
+        <div className="bg-white/80 shadow-sm p-8 rounded-3xl border border-amber-200/60 max-w-md w-full shadow-2xl">
           <div className="flex justify-center mb-6">
-            <div className="p-4 bg-emerald-500/10 rounded-full text-emerald-400 border border-emerald-500/20">
+            <div className="p-4 bg-amber-500/10 rounded-full text-amber-600 border border-amber-500/30">
               <Lock className="w-8 h-8" />
             </div>
           </div>
-          <h1 className="text-2xl text-center text-white font-light mb-8">Admin Portal</h1>
+          <h1 className="text-2xl text-center text-slate-800 font-light mb-8">Admin Portal</h1>
           <form onSubmit={handleLogin} className="flex flex-col gap-4">
             <input 
               type="password" 
               placeholder="Enter Admin Password" 
               value={passwordInput}
               onChange={(e) => setPasswordInput(e.target.value)}
-              className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50"
+              className="w-full bg-white border border-amber-200 rounded-xl px-4 py-3 text-slate-800 focus:outline-none focus:border-amber-500/50"
             />
-            {authError && <p className="text-red-400 text-sm text-center">{authError}</p>}
-            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl py-3 font-medium transition-colors">
+            {authError && <p className="text-red-500 text-sm text-center">{authError}</p>}
+            <button type="submit" className="w-full bg-amber-500 hover:bg-amber-400 text-slate-800 rounded-xl py-3 font-medium transition-colors">
               Access Dashboard
             </button>
           </form>
@@ -383,35 +418,35 @@ export default function ManagementPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 p-4 md:p-8">
-      <header className="flex justify-between items-center mb-8 pb-4 border-b border-white/10">
-        <h1 className="text-2xl font-light text-white">Quilon Group Management</h1>
+    <div className="min-h-screen bg-ivory-50 text-slate-800 p-4 md:p-8">
+      <header className="flex justify-between items-center mb-8 pb-4 border-b border-amber-200/60">
+        <h1 className="text-2xl font-light text-slate-800">Quilon Group Management</h1>
         <div className="flex items-center gap-4">
-          <button onClick={() => setShowSettings(!showSettings)} className="p-2 bg-slate-800 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-400 rounded-lg transition-colors" title="Settings">
+          <button onClick={() => setShowSettings(!showSettings)} className="p-2 bg-white border border-amber-200 shadow-sm hover:bg-amber-50 text-slate-600 hover:text-amber-600 rounded-lg transition-colors" title="Settings">
             <Settings className="w-5 h-5" />
           </button>
-          <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-colors">
+          <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 bg-white border border-amber-200 shadow-sm hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors">
             <LogOut className="w-4 h-4" /> Logout
           </button>
         </div>
       </header>
 
       {showSettings && (
-        <div className="max-w-6xl mx-auto mb-8 bg-slate-800/50 rounded-2xl p-6 border border-white/5">
-          <h3 className="text-xl font-light text-white mb-4">Admin Settings</h3>
+        <div className="max-w-6xl mx-auto mb-8 bg-white/80 shadow-sm rounded-2xl p-6 border border-amber-200/40">
+          <h3 className="text-xl font-light text-slate-800 mb-4">Admin Settings</h3>
           <form onSubmit={handlePasswordChange} className="flex flex-col gap-4 max-w-md">
             <div>
-              <label className="text-xs text-slate-400 mb-1 block">Old Password</label>
+              <label className="text-xs text-slate-500 mb-1 block">Old Password</label>
               <input 
                 type="password" 
                 required 
                 value={oldAdminPassword} 
                 onChange={e => setOldAdminPassword(e.target.value)} 
-                className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" 
+                className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500" 
               />
             </div>
             <div>
-              <label className="text-xs text-slate-400 mb-1 block">New Password</label>
+              <label className="text-xs text-slate-500 mb-1 block">New Password</label>
               <input 
                 type="password" 
                 required 
@@ -419,11 +454,11 @@ export default function ManagementPage() {
                 onChange={e => setNewAdminPassword(e.target.value)} 
                 onPaste={(e) => e.preventDefault()}
                 onCopy={(e) => e.preventDefault()}
-                className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" 
+                className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500" 
               />
             </div>
             <div>
-              <label className="text-xs text-slate-400 mb-1 block">Confirm New Password</label>
+              <label className="text-xs text-slate-500 mb-1 block">Confirm New Password</label>
               <input 
                 type="password" 
                 required 
@@ -431,47 +466,47 @@ export default function ManagementPage() {
                 onChange={e => setConfirmAdminPassword(e.target.value)} 
                 onPaste={(e) => e.preventDefault()}
                 onCopy={(e) => e.preventDefault()}
-                className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" 
+                className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500" 
               />
             </div>
-            {passwordChangeError && <p className="text-red-400 text-sm">{passwordChangeError}</p>}
-            <button type="submit" disabled={isUpdatingPassword} className="bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg px-4 py-2 font-medium transition-colors disabled:opacity-50 mt-2">
+            {passwordChangeError && <p className="text-red-500 text-sm">{passwordChangeError}</p>}
+            <button type="submit" disabled={isUpdatingPassword} className="bg-amber-500 hover:bg-amber-400 text-slate-800 rounded-lg px-4 py-2 font-medium transition-colors disabled:opacity-50 mt-2">
               {isUpdatingPassword ? 'Updating...' : 'Update Password'}
             </button>
           </form>
 
-          <div className="mt-8 pt-6 border-t border-white/10">
-            <h4 className="text-lg font-light text-white mb-4">Main Page Contact Details</h4>
+          <div className="mt-8 pt-6 border-t border-amber-200/60">
+            <h4 className="text-lg font-light text-slate-800 mb-4">Main Page Contact Details</h4>
             <form onSubmit={handleUpdateGlobalContacts} className="flex flex-col gap-4 max-w-md">
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">Main Email</label>
+                <label className="text-xs text-slate-500 mb-1 block">Main Email</label>
                 <input 
                   type="email" 
                   value={globalEmail} 
                   onChange={e => setGlobalEmail(e.target.value)} 
-                  className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" 
+                  className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500" 
                 />
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">Main Phone</label>
+                <label className="text-xs text-slate-500 mb-1 block">Main Phone</label>
                 <input 
                   type="tel" 
                   value={globalPhone} 
                   onChange={e => setGlobalPhone(e.target.value)} 
-                  className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" 
+                  className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500" 
                 />
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">Main WhatsApp</label>
+                <label className="text-xs text-slate-500 mb-1 block">Main WhatsApp</label>
                 <input 
                   type="tel" 
                   value={globalWhatsapp} 
                   onChange={e => setGlobalWhatsapp(e.target.value)} 
-                  className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" 
+                  className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500" 
                 />
               </div>
-              {globalContactsMessage && <p className="text-sm text-emerald-400">{globalContactsMessage}</p>}
-              <button type="submit" disabled={isUpdatingGlobalContacts} className="bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg px-4 py-2 font-medium transition-colors disabled:opacity-50 mt-2">
+              {globalContactsMessage && <p className="text-sm text-amber-600">{globalContactsMessage}</p>}
+              <button type="submit" disabled={isUpdatingGlobalContacts} className="bg-amber-500 hover:bg-amber-400 text-slate-800 rounded-lg px-4 py-2 font-medium transition-colors disabled:opacity-50 mt-2">
                 {isUpdatingGlobalContacts ? 'Saving...' : 'Save Contact Details'}
               </button>
             </form>
@@ -483,54 +518,54 @@ export default function ManagementPage() {
         <div className="space-y-8 max-w-6xl mx-auto">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <button onClick={() => setSelectedProperty(null)} className="p-2 bg-white/5 hover:bg-white/10 rounded-full">
+              <button onClick={() => setSelectedProperty(null)} className="p-2 bg-white border border-amber-200 shadow-sm hover:bg-amber-50 rounded-full">
                 <ArrowLeft className="w-5 h-5" />
               </button>
-              <h2 className="text-3xl font-light text-emerald-400">{selectedProperty.name}</h2>
+              <h2 className="text-3xl font-light text-amber-600">{selectedProperty.name}</h2>
             </div>
           </div>
           
-          <div className="bg-slate-800/50 rounded-2xl p-6 border border-white/5">
-            <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2"><ImageIcon className="w-5 h-5 text-emerald-400"/> Upload Media</h3>
-            <Uploader propertySlug={selectedProperty.slug} onSuccess={() => fetchPhotos(selectedProperty.slug)} />
+          <div className="bg-white/80 shadow-sm rounded-2xl p-6 border border-amber-200/40">
+            <h3 className="text-lg font-medium text-slate-800 mb-4 flex items-center gap-2"><ImageIcon className="w-5 h-5 text-amber-600"/> Upload Media</h3>
+            <Uploader propertySlug={selectedProperty.slug} onSuccess={() => { fetchPhotos(selectedProperty.slug); router.refresh(); }} />
           </div>
 
-          <div className="bg-slate-800/50 rounded-2xl p-6 border border-white/5">
-            <h3 className="text-lg font-medium text-white mb-4">Gallery Items</h3>
+          <div className="bg-white/80 shadow-sm rounded-2xl p-6 border border-amber-200/40">
+            <h3 className="text-lg font-medium text-slate-800 mb-4">Gallery Items</h3>
             {photos.length === 0 ? (
-              <p className="text-slate-400">No photos in this property yet.</p>
+              <p className="text-slate-500">No photos in this property yet.</p>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                 {photos.map(photo => (
-                  <div key={photo.id} className="relative group rounded-xl overflow-hidden aspect-square bg-slate-900 border border-white/10">
+                  <div key={photo.id} className="relative group rounded-xl overflow-hidden aspect-square bg-ivory-50 border border-amber-200/60">
                     {isVideo(photo.image_url) ? (
                       <video src={photo.image_url} className="w-full h-full object-cover" muted playsInline />
                     ) : (
                       <Image src={photo.image_url} alt="gallery" fill className="object-cover" sizes="200px" />
                     )}
                     <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                      <button onClick={() => { setEditPhotoId(photo.id); setEditPhotoCaption(photo.caption || ''); }} className="p-2 bg-emerald-500/80 hover:bg-emerald-500 text-white rounded-full">
+                      <button onClick={() => { setEditPhotoId(photo.id); setEditPhotoCaption(photo.caption || ''); }} className="p-2 bg-amber-500/90 hover:bg-amber-400 text-white rounded-full shadow-sm">
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      <button onClick={() => handleDeletePhoto(photo.id, photo.bucket_path)} className="p-2 bg-red-500/80 hover:bg-red-500 text-white rounded-full">
+                      <button onClick={() => handleDeletePhoto(photo.id, photo.bucket_path)} className="p-2 bg-red-500/80 hover:bg-red-500 text-white rounded-full shadow-sm">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                     {editPhotoId === photo.id ? (
-                      <div className="absolute inset-0 bg-slate-900/95 p-3 flex flex-col justify-center gap-2 z-20">
-                        <label className="text-xs text-slate-400">Edit Caption</label>
+                      <div className="absolute inset-0 bg-white/95 backdrop-blur-md shadow-lg border border-amber-100 p-3 flex flex-col justify-center gap-2 z-20">
+                        <label className="text-xs text-slate-500">Edit Caption</label>
                         <textarea 
                           value={editPhotoCaption} 
                           onChange={e => setEditPhotoCaption(e.target.value)}
-                          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white resize-none h-20 focus:outline-none focus:border-emerald-500"
+                          className="w-full bg-white border border-amber-200 shadow-sm rounded px-2 py-1 text-sm text-slate-800 resize-none h-20 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
                         />
                         <div className="flex justify-end gap-2 mt-1">
-                          <button onClick={() => setEditPhotoId(null)} className="p-1 hover:bg-white/10 rounded text-slate-400"><X className="w-4 h-4"/></button>
-                          <button onClick={() => handleSavePhotoCaption(photo.id)} className="p-1 hover:bg-emerald-500/20 text-emerald-400 rounded"><Check className="w-4 h-4"/></button>
+                          <button onClick={() => setEditPhotoId(null)} className="p-1 hover:bg-amber-50 rounded text-slate-500"><X className="w-4 h-4"/></button>
+                          <button onClick={() => handleSavePhotoCaption(photo.id)} className="p-1 hover:bg-amber-50 text-amber-600 rounded"><Check className="w-4 h-4"/></button>
                         </div>
                       </div>
                     ) : (
-                      photo.caption && <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-2 pt-8 text-xs text-white truncate pointer-events-none">{photo.caption}</div>
+                      photo.caption && <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent p-2 pt-8 text-xs text-white truncate pointer-events-none">{photo.caption}</div>
                     )}
                   </div>
                 ))}
@@ -542,38 +577,38 @@ export default function ManagementPage() {
         <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
           {/* Create Property Form */}
           <div className="md:col-span-1">
-            <div className="bg-slate-800/50 rounded-2xl p-6 border border-white/5 sticky top-8">
-              <h3 className="text-xl font-light text-white mb-6 flex items-center gap-2"><Plus className="w-5 h-5 text-emerald-400"/> Add Property</h3>
+            <div className="bg-white/80 shadow-sm rounded-2xl p-6 border border-amber-200/40 sticky top-8">
+              <h3 className="text-xl font-light text-slate-800 mb-6 flex items-center gap-2"><Plus className="w-5 h-5 text-amber-600"/> Add Property</h3>
               <form onSubmit={handleCreateProperty} className="flex flex-col gap-4">
                 <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Property Name</label>
-                  <input required value={newPropName} onChange={e => { setNewPropName(e.target.value); setNewPropSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-')); }} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" />
+                  <label className="text-xs text-slate-500 mb-1 block">Property Name</label>
+                  <input required value={newPropName} onChange={e => { setNewPropName(e.target.value); setNewPropSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-')); }} className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500" />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 mb-1 block">URL Slug</label>
-                  <input required value={newPropSlug} onChange={e => setNewPropSlug(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" />
+                  <label className="text-xs text-slate-500 mb-1 block">URL Slug</label>
+                  <input required value={newPropSlug} onChange={e => setNewPropSlug(e.target.value)} className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500" />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Contact Email (Optional)</label>
-                  <input type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" />
+                  <label className="text-xs text-slate-500 mb-1 block">Contact Email (Optional)</label>
+                  <input type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500" />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Contact Phone (Optional)</label>
-                  <input type="tel" value={contactPhone} onChange={e => setContactPhone(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" />
+                  <label className="text-xs text-slate-500 mb-1 block">Contact Phone (Optional)</label>
+                  <input type="tel" value={contactPhone} onChange={e => setContactPhone(e.target.value)} className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500" />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 mb-1 block">WhatsApp Number (Optional)</label>
-                  <input type="tel" value={contactWhatsapp} onChange={e => setContactWhatsapp(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" />
+                  <label className="text-xs text-slate-500 mb-1 block">WhatsApp Number (Optional)</label>
+                  <input type="tel" value={contactWhatsapp} onChange={e => setContactWhatsapp(e.target.value)} className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500" />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Google Maps URL (Optional)</label>
-                  <input type="url" value={contactLocationUrl} onChange={e => setContactLocationUrl(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" />
+                  <label className="text-xs text-slate-500 mb-1 block">Google Maps URL (Optional)</label>
+                  <input type="url" value={contactLocationUrl} onChange={e => setContactLocationUrl(e.target.value)} className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500" />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Cover Image/Video (Optional)</label>
-                  <input type="file" accept="image/*,video/*" onChange={e => setCoverImageFile(e.target.files?.[0] || null)} className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-medium file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20 transition-all cursor-pointer" />
+                  <label className="text-xs text-slate-500 mb-1 block">Cover Image/Video (Optional)</label>
+                  <input type="file" accept="image/*,video/*" onChange={e => setCoverImageFile(e.target.files?.[0] || null)} className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-medium file:bg-amber-500/10 file:text-amber-600 hover:file:bg-amber-500/20 transition-all cursor-pointer" />
                 </div>
-                <button type="submit" disabled={isUploadingCover} className="mt-2 w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg py-2 font-medium transition-colors flex items-center justify-center gap-2">
+                <button type="submit" disabled={isUploadingCover} className="mt-2 w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-800 rounded-lg py-2 font-medium transition-colors flex items-center justify-center gap-2">
                   {isUploadingCover ? <><Loader2 className="w-4 h-4 animate-spin"/> Creating...</> : 'Create Property'}
                 </button>
               </form>
@@ -582,23 +617,23 @@ export default function ManagementPage() {
 
           {/* Properties List */}
           <div className="md:col-span-2">
-            <h3 className="text-xl font-light text-white mb-6">Manage Properties</h3>
+            <h3 className="text-xl font-light text-slate-800 mb-6">Manage Properties</h3>
             {properties.length === 0 ? (
-              <p className="text-slate-400">No properties created yet.</p>
+              <p className="text-slate-500">No properties created yet.</p>
             ) : (
               <div className="space-y-4">
                 {properties.map(prop => (
-                  <div key={prop.id} className="bg-slate-800/50 rounded-2xl p-4 border border-white/5 flex flex-col gap-4">
+                  <div key={prop.id} className="bg-white/80 shadow-sm rounded-2xl p-4 border border-amber-200/40 flex flex-col gap-4">
                     <div className="flex justify-between items-center">
                       <div>
-                        <h4 className="text-lg font-medium text-white">{prop.name}</h4>
-                        <p className="text-xs text-slate-400 font-mono">/{prop.slug}</p>
+                        <h4 className="text-lg font-medium text-slate-800">{prop.name}</h4>
+                        <p className="text-xs text-slate-500 font-mono">/{prop.slug}</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button onClick={() => { setSelectedProperty(prop); fetchPhotos(prop.slug); }} className="px-4 py-2 bg-white/5 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-sm font-medium transition-colors">
+                        <button onClick={() => { setSelectedProperty(prop); fetchPhotos(prop.slug); }} className="px-4 py-2 bg-white border border-amber-200 shadow-sm hover:bg-amber-50 text-amber-600 rounded-lg text-sm font-medium transition-colors">
                           Manage Gallery
                         </button>
-                        <button onClick={() => handleDeleteProperty(prop.id, prop.slug)} className="p-2 bg-white/5 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors">
+                        <button onClick={() => handleDeleteProperty(prop.id, prop.slug)} className="p-2 bg-white border border-amber-200 shadow-sm hover:bg-red-50 text-red-500 rounded-lg transition-colors">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -606,24 +641,24 @@ export default function ManagementPage() {
                     
                     {/* Edit Contact Details Section */}
                     {editPropId === prop.id ? (
-                      <div className="pt-4 border-t border-white/10 grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <input value={editPropName} onChange={e => setEditPropName(e.target.value)} placeholder="Property Name" className="bg-slate-900/50 border border-slate-700 rounded px-3 py-1 text-sm text-white focus:border-emerald-500" />
-                        <input value={editPropSlug} onChange={e => setEditPropSlug(e.target.value)} placeholder="URL Slug" className="bg-slate-900/50 border border-slate-700 rounded px-3 py-1 text-sm text-white focus:border-emerald-500" />
-                        <input value={editContactEmail} onChange={e => setEditContactEmail(e.target.value)} placeholder="Email" className="bg-slate-900/50 border border-slate-700 rounded px-3 py-1 text-sm text-white focus:border-emerald-500" />
-                        <input value={editContactPhone} onChange={e => setEditContactPhone(e.target.value)} placeholder="Phone" className="bg-slate-900/50 border border-slate-700 rounded px-3 py-1 text-sm text-white focus:border-emerald-500" />
-                        <input value={editContactWhatsapp} onChange={e => setEditContactWhatsapp(e.target.value)} placeholder="WhatsApp" className="bg-slate-900/50 border border-slate-700 rounded px-3 py-1 text-sm text-white focus:border-emerald-500" />
-                        <input value={editLocationUrl} onChange={e => setEditLocationUrl(e.target.value)} placeholder="Google Maps URL" className="bg-slate-900/50 border border-slate-700 rounded px-3 py-1 text-sm text-white focus:border-emerald-500" />
+                      <div className="pt-4 border-t border-amber-200/60 grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <input value={editPropName} onChange={e => setEditPropName(e.target.value)} placeholder="Property Name" className="bg-white border border-amber-200 rounded px-3 py-1 text-sm text-slate-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500" />
+                        <input value={editPropSlug} onChange={e => setEditPropSlug(e.target.value)} placeholder="URL Slug" className="bg-white border border-amber-200 rounded px-3 py-1 text-sm text-slate-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500" />
+                        <input value={editContactEmail} onChange={e => setEditContactEmail(e.target.value)} placeholder="Email" className="bg-white border border-amber-200 rounded px-3 py-1 text-sm text-slate-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500" />
+                        <input value={editContactPhone} onChange={e => setEditContactPhone(e.target.value)} placeholder="Phone" className="bg-white border border-amber-200 rounded px-3 py-1 text-sm text-slate-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500" />
+                        <input value={editContactWhatsapp} onChange={e => setEditContactWhatsapp(e.target.value)} placeholder="WhatsApp" className="bg-white border border-amber-200 rounded px-3 py-1 text-sm text-slate-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500" />
+                        <input value={editLocationUrl} onChange={e => setEditLocationUrl(e.target.value)} placeholder="Google Maps URL" className="bg-white border border-amber-200 rounded px-3 py-1 text-sm text-slate-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500" />
                         <div className="md:col-span-2">
-                          <label className="text-xs text-slate-400 mb-1 block">New Cover Media (Leave blank to keep current)</label>
-                          <input type="file" accept="image/*,video/*" onChange={e => setEditCoverImageFile(e.target.files?.[0] || null)} className="w-full text-xs text-slate-400 file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-medium file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20 transition-all cursor-pointer" />
+                          <label className="text-xs text-slate-500 mb-1 block">New Cover Media (Leave blank to keep current)</label>
+                          <input type="file" accept="image/*,video/*" onChange={e => setEditCoverImageFile(e.target.files?.[0] || null)} className="w-full text-xs text-slate-500 file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-medium file:bg-amber-500/10 file:text-amber-600 hover:file:bg-amber-500/20 transition-all cursor-pointer" />
                         </div>
                         <div className="md:col-span-2 flex justify-end gap-2 mt-2">
-                          <button onClick={() => setEditPropId(null)} className="p-1 hover:bg-white/10 rounded text-slate-400"><X className="w-4 h-4"/></button>
-                          <button onClick={() => handleSaveEdits(prop.id, prop.slug)} disabled={isEditingCover} className="p-1 hover:bg-emerald-500/20 text-emerald-400 rounded disabled:opacity-50">{isEditingCover ? <Loader2 className="w-4 h-4 animate-spin"/> : <Check className="w-4 h-4"/>}</button>
+                          <button onClick={() => setEditPropId(null)} className="p-1 hover:bg-amber-50 rounded text-slate-500"><X className="w-4 h-4"/></button>
+                          <button onClick={() => handleSaveEdits(prop.id, prop.slug)} disabled={isEditingCover} className="p-1 hover:bg-amber-50 text-amber-600 rounded disabled:opacity-50">{isEditingCover ? <Loader2 className="w-4 h-4 animate-spin"/> : <Check className="w-4 h-4"/>}</button>
                         </div>
                       </div>
                     ) : (
-                      <div className="pt-4 border-t border-white/10 flex flex-col md:flex-row items-start md:items-center justify-between text-sm text-slate-400 gap-2">
+                      <div className="pt-4 border-t border-amber-200/60 flex flex-col md:flex-row items-start md:items-center justify-between text-sm text-slate-500 gap-2">
                         <div className="flex flex-wrap gap-x-4 gap-y-1">
                           <span>{prop.contact_email || 'No email'}</span>
                           <span className="hidden md:inline">•</span>
@@ -635,7 +670,7 @@ export default function ManagementPage() {
                           <span className="hidden md:inline">•</span>
                           <span>{prop.cover_image_url ? 'Cover set' : 'No Cover'}</span>
                         </div>
-                        <button onClick={() => startEditing(prop)} className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 text-xs whitespace-nowrap">
+                        <button onClick={() => startEditing(prop)} className="flex items-center gap-1 text-amber-600 hover:text-amber-500 text-xs whitespace-nowrap">
                           <Edit2 className="w-3 h-3" /> Edit Details
                         </button>
                       </div>

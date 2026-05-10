@@ -116,19 +116,19 @@ export default function Uploader({ propertySlug, onSuccess }: UploaderProps = {}
   };
 
   return (
-    <div className="w-full max-w-md mx-auto p-8 rounded-3xl backdrop-blur-xl bg-white/5 border border-white/10 shadow-2xl shadow-black/50">
-      <h3 className="text-2xl font-light text-white mb-6 flex items-center gap-2">
-        <UploadCloud className="w-6 h-6 text-emerald-400" />
+    <div className="w-full max-w-md mx-auto p-8 rounded-3xl backdrop-blur-xl bg-white border border-amber-100 shadow-xl shadow-amber-900/5">
+      <h3 className="text-2xl font-serif text-slate-800 mb-6 flex items-center gap-2">
+        <UploadCloud className="w-6 h-6 text-amber-500" />
         Upload Media
       </h3>
 
       <div className="space-y-5">
         <div>
-          <label className="block text-sm text-slate-300 mb-2">Property</label>
+          <label className="block text-sm font-medium text-slate-600 mb-2">Property</label>
           <select 
             value={propertyType}
             onChange={(e) => setPropertyType(e.target.value)}
-            className="w-full bg-slate-800/50 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 appearance-none"
+            className="w-full bg-white border border-amber-200 rounded-xl px-4 py-3 text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/30 appearance-none"
           >
             {properties.map(prop => (
               <option key={prop.id} value={prop.slug}>{prop.name}</option>
@@ -138,34 +138,34 @@ export default function Uploader({ propertySlug, onSuccess }: UploaderProps = {}
         </div>
 
         <div>
-          <label className="block text-sm text-slate-300 mb-2">Media</label>
+          <label className="block text-sm font-medium text-slate-600 mb-2">Media</label>
           <input
             type="file"
             accept="image/*,video/*"
             onChange={(e) => setFile(e.target.files?.[0] || null)}
-            className="w-full text-sm text-slate-400 file:mr-4 file:py-3 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-medium file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20 transition-all cursor-pointer"
+            className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-medium file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100 transition-all cursor-pointer"
           />
         </div>
 
         <div>
-          <label className="block text-sm text-slate-300 mb-2">Caption</label>
+          <label className="block text-sm font-medium text-slate-600 mb-2">Caption</label>
           <input
             type="text"
             value={caption}
             onChange={(e) => setCaption(e.target.value)}
             placeholder="e.g., Lake view from the balcony..."
-            className="w-full bg-slate-800/50 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 placeholder:text-slate-500"
+            className="w-full bg-white border border-amber-200 rounded-xl px-4 py-3 text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/30 placeholder:text-slate-400"
           />
         </div>
 
         {status === 'error' && (
-          <p className="text-red-400 text-sm">Error uploading. Please try again.</p>
+          <p className="text-red-500 text-sm">Error uploading. Please try again.</p>
         )}
 
         <button
           onClick={handleUpload}
           disabled={!file || uploading || !propertyType}
-          className="w-full mt-4 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-white font-medium hover:from-emerald-500 hover:to-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-emerald-900/50 flex justify-center items-center gap-2"
+          className="w-full mt-4 py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 text-white font-medium hover:from-amber-400 hover:to-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-amber-500/20 flex justify-center items-center gap-2"
         >
           {uploading ? (
              <><Loader2 className="w-5 h-5 animate-spin" /> Uploading...</>
