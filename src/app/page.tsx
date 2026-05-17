@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import JioShuffleGallery from '@/components/JioShuffleGallery';
 import { Mail, Phone, MessageCircle } from 'lucide-react';
+import EnquiryButton from '@/components/EnquiryButton';
 
 // Force dynamic rendering to ensure fresh data from Supabase on every request
 export const dynamic = 'force-dynamic';
@@ -71,6 +72,7 @@ export default async function Home() {
           </div>
         </div>
       </section>
+      <EnquiryButton />
     </main>
   );
 }

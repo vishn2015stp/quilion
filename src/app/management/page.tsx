@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Uploader from '@/components/Uploader';
 import { supabase } from '@/lib/supabase';
-import { Lock, Plus, LogOut, Image as ImageIcon, Trash2, Edit2, Check, X, ArrowLeft, Settings, Loader2 } from 'lucide-react';
+import { Lock, Plus, LogOut, Image as ImageIcon, Trash2, Edit2, Check, X, ArrowLeft, Settings, Loader2, Inbox, RefreshCw } from 'lucide-react';
 import Image from 'next/image';
 import imageCompression from 'browser-image-compression';
 import { useRouter } from 'next/navigation';
@@ -19,6 +19,17 @@ type Property = {
   location_url?: string;
 };
 
+type Enquiry = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  message: string;
+  status?: string;
+  admin_notes?: string;
+  created_at: string;
+};
+
 type Photo = {
   id: string;
   image_url: string;
@@ -32,6 +43,7 @@ const isVideo = (url?: string) => url?.match(/\.(mp4|webm|ogg|mov)(\?.*)?$/i);
 export default function ManagementPage() {
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isSessionLoading, setIsSessionLoading] = useState(true);
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState('');
   
@@ -78,6 +90,14 @@ export default function ManagementPage() {
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [passwordChangeError, setPasswordChangeError] = useState('');
 
+  // Enquiries
+  const [showEnquiries, setShowEnquiries] = useState(false);
+  const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editNoteContent, setEditNoteContent] = useState('');
+
   // Authentication
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,9 +114,17 @@ export default function ManagementPage() {
       const expectedPassword = data?.admin_password || 'admin123';
       
       if (expectedPassword === passwordInput) {
+        const sessionToken = crypto.randomUUID();
+        localStorage.setItem('adminSessionToken', sessionToken);
+        await supabase.from('admin_settings').update({ 
+          session_token: sessionToken,
+          last_active_at: new Date().toISOString()
+        }).eq('id', 1);
+
         setIsAuthenticated(true);
         fetchProperties();
         fetchAdminSettings();
+        fetchEnquiries();
       } else {
         setAuthError('Incorrect password');
       }
@@ -107,6 +135,7 @@ export default function ManagementPage() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('adminSessionToken');
     setIsAuthenticated(false);
     setPasswordInput('');
     setSelectedProperty(null);
@@ -136,6 +165,47 @@ export default function ManagementPage() {
     }
   };
 
+  const fetchEnquiries = async () => {
+    try {
+      const { data, error } = await supabase.from('enquiries').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      setEnquiries(data || []);
+    } catch (err: any) {
+      console.error('Error fetching enquiries (Table might not exist yet):', err?.message || err);
+    }
+  };
+
+  const updateEnquiryStatus = async (id: string, newStatus: string) => {
+    try {
+      // Optimistic update
+      setEnquiries(prev => prev.map(e => e.id === id ? { ...e, status: newStatus } : e));
+      const { error } = await supabase.from('enquiries').update({ status: newStatus }).eq('id', id);
+      if (error) {
+        // Revert on error
+        fetchEnquiries();
+        throw error;
+      }
+    } catch (err) {
+      console.error('Error updating status:', err);
+      alert('Failed to update status');
+    }
+  };
+
+  const updateEnquiryNote = async (id: string) => {
+    try {
+      setEnquiries(prev => prev.map(e => e.id === id ? { ...e, admin_notes: editNoteContent } : e));
+      const { error } = await supabase.from('enquiries').update({ admin_notes: editNoteContent }).eq('id', id);
+      if (error) {
+        fetchEnquiries();
+        throw error;
+      }
+      setEditingNoteId(null);
+    } catch (err) {
+      console.error('Error updating note:', err);
+      alert('Failed to update note');
+    }
+  };
+
   const fetchPhotos = async (slug: string) => {
     try {
       const { data, error } = await supabase.from('gallery_metadata').select('*').eq('property_type', slug).order('created_at', { ascending: false });
@@ -160,6 +230,90 @@ export default function ManagementPage() {
     const { data: { publicUrl } } = supabase.storage.from('gallery').getPublicUrl(fileName);
     return publicUrl;
   };
+
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const localToken = localStorage.getItem('adminSessionToken');
+        if (!localToken) {
+          setIsSessionLoading(false);
+          return;
+        }
+
+        const { data } = await supabase.from('admin_settings').select('session_token, last_active_at').eq('id', 1).maybeSingle();
+        
+        if (data && data.session_token === localToken) {
+          const lastActive = new Date(data.last_active_at).getTime();
+          const now = new Date().getTime();
+          // Check if inactive for > 2 mins (120000 ms)
+          if (now - lastActive < 120000) {
+            setIsAuthenticated(true);
+            fetchProperties();
+            fetchAdminSettings();
+            fetchEnquiries();
+          } else {
+            localStorage.removeItem('adminSessionToken');
+          }
+        } else {
+          localStorage.removeItem('adminSessionToken');
+        }
+      } catch (err) {
+        console.error('Session check error', err);
+      }
+      setIsSessionLoading(false);
+    };
+    checkSession();
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    let isActive = true;
+    const updateActivity = () => { isActive = true; };
+
+    window.addEventListener('mousemove', updateActivity);
+    window.addEventListener('keydown', updateActivity);
+    window.addEventListener('click', updateActivity);
+
+    const interval = setInterval(async () => {
+      const localToken = localStorage.getItem('adminSessionToken');
+      if (!localToken) {
+        handleLogout();
+        return;
+      }
+
+      const { data } = await supabase.from('admin_settings').select('session_token, last_active_at').eq('id', 1).maybeSingle();
+      
+      if (!data || data.session_token !== localToken) {
+        alert('You have been logged out because another user logged in.');
+        handleLogout();
+        return;
+      }
+
+      const lastActive = new Date(data.last_active_at).getTime();
+      const now = new Date().getTime();
+
+      if (now - lastActive > 120000) {
+        alert('Your session has expired due to inactivity.');
+        handleLogout();
+        return;
+      }
+
+      if (isActive) {
+        await supabase.from('admin_settings').update({ 
+          last_active_at: new Date().toISOString()
+        }).eq('id', 1);
+        isActive = false;
+      }
+    }, 30000);
+
+    return () => {
+      window.removeEventListener('mousemove', updateActivity);
+      window.removeEventListener('keydown', updateActivity);
+      window.removeEventListener('click', updateActivity);
+      clearInterval(interval);
+    };
+  }, [isAuthenticated]);
 
   // Create Property
   const handleCreateProperty = async (e: React.FormEvent) => {
@@ -389,6 +543,15 @@ export default function ManagementPage() {
     }
   };
 
+  if (isSessionLoading) {
+    return (
+      <div className="h-screen bg-ivory-50 flex items-center justify-center p-4 text-amber-600 flex-col gap-4">
+        <Loader2 className="w-8 h-8 animate-spin" />
+        <p className="text-sm font-light text-slate-500">Checking session...</p>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return (
       <div className="h-screen bg-ivory-50 flex items-center justify-center p-4">
@@ -417,16 +580,27 @@ export default function ManagementPage() {
     );
   }
 
+  const filteredEnquiries = enquiries.filter(enquiry => {
+    const matchesSearch = (enquiry.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          (enquiry.phone || '').includes(searchQuery) ||
+                          (enquiry.email || '').toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || (enquiry.status || 'new') === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
   return (
     <div className="min-h-screen bg-ivory-50 text-slate-800 p-4 md:p-8">
       <header className="flex justify-between items-center mb-8 pb-4 border-b border-amber-200/60">
         <h1 className="text-2xl font-light text-slate-800">Quilon Group Management</h1>
         <div className="flex items-center gap-4">
-          <button onClick={() => setShowSettings(!showSettings)} className="p-2 bg-white border border-amber-200 shadow-sm hover:bg-amber-50 text-slate-600 hover:text-amber-600 rounded-lg transition-colors" title="Settings">
+          <button onClick={() => { setShowEnquiries(!showEnquiries); setShowSettings(false); setSelectedProperty(null); }} className={`flex items-center gap-2 px-4 py-2 bg-white border border-amber-200 shadow-sm hover:bg-amber-50 rounded-lg transition-colors ${showEnquiries ? 'text-amber-600 bg-amber-50' : 'text-slate-600'}`}>
+            <Inbox className="w-4 h-4" /> <span className="hidden md:inline">Enquiries</span>
+          </button>
+          <button onClick={() => { setShowSettings(!showSettings); setShowEnquiries(false); }} className={`p-2 bg-white border border-amber-200 shadow-sm hover:bg-amber-50 rounded-lg transition-colors ${showSettings ? 'text-amber-600 bg-amber-50' : 'text-slate-600'}`} title="Settings">
             <Settings className="w-5 h-5" />
           </button>
           <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 bg-white border border-amber-200 shadow-sm hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors">
-            <LogOut className="w-4 h-4" /> Logout
+            <LogOut className="w-4 h-4" /> <span className="hidden md:inline">Logout</span>
           </button>
         </div>
       </header>
@@ -514,7 +688,111 @@ export default function ManagementPage() {
         </div>
       )}
 
-      {selectedProperty ? (
+      {showEnquiries && (
+        <div className="max-w-6xl mx-auto mb-8 bg-white/80 shadow-sm rounded-2xl p-6 border border-amber-200/40">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+            <h3 className="text-xl font-light text-slate-800 flex items-center gap-2">
+              <Inbox className="w-5 h-5 text-amber-600" /> Recent Enquiries
+              <button 
+                onClick={fetchEnquiries}
+                className="ml-2 p-1 text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors"
+                title="Refresh Enquiries"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </h3>
+            <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+              <input 
+                type="text" 
+                placeholder="Search name, email, phone..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 w-full sm:w-64"
+              />
+              <select 
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 cursor-pointer"
+              >
+                <option value="all">All Statuses</option>
+                <option value="new">New</option>
+                <option value="in-progress">In Progress</option>
+                <option value="resolved">Resolved</option>
+              </select>
+            </div>
+          </div>
+          
+          {filteredEnquiries.length === 0 ? (
+            <p className="text-slate-500 text-center py-8">No enquiries found matching your criteria.</p>
+          ) : (
+            <div className="space-y-4">
+              {filteredEnquiries.map((enquiry) => (
+                <div key={enquiry.id} className="bg-white border border-amber-200/60 rounded-xl p-4 shadow-sm flex flex-col gap-3">
+                  <div className="flex justify-between items-start flex-wrap gap-2">
+                    <div>
+                      <h4 className="font-medium text-slate-800">{enquiry.name}</h4>
+                      <p className="text-sm text-slate-500">{new Date(enquiry.created_at).toLocaleString()}</p>
+                    </div>
+                    <select 
+                      value={enquiry.status || 'new'}
+                      onChange={(e) => updateEnquiryStatus(enquiry.id, e.target.value)}
+                      className={`text-xs px-3 py-1.5 rounded-full font-medium border focus:outline-none cursor-pointer ${
+                        (enquiry.status || 'new') === 'new' ? 'bg-amber-50 text-amber-700 border-amber-200' : 
+                        (enquiry.status === 'in-progress') ? 'bg-blue-50 text-blue-700 border-blue-200' : 
+                        'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      }`}
+                    >
+                      <option value="new">New</option>
+                      <option value="in-progress">In Progress</option>
+                      <option value="resolved">Resolved</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-4 text-sm text-amber-700">
+                    <a href={`mailto:${enquiry.email}`} className="hover:underline">{enquiry.email}</a>
+                    {enquiry.phone && <a href={`tel:${enquiry.phone}`} className="hover:underline">{enquiry.phone}</a>}
+                  </div>
+                  <div className="bg-ivory-50 p-3 rounded-lg text-slate-700 text-sm whitespace-pre-wrap border border-amber-100">
+                    {enquiry.message}
+                  </div>
+                  <div className="pt-3 border-t border-amber-200/40">
+                    {editingNoteId === enquiry.id ? (
+                      <div className="flex flex-col gap-2">
+                        <textarea 
+                          value={editNoteContent}
+                          onChange={(e) => setEditNoteContent(e.target.value)}
+                          placeholder="Add internal note..."
+                          className="w-full bg-ivory-50 border border-amber-200 rounded px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 resize-none h-20"
+                        />
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => setEditingNoteId(null)} className="px-3 py-1 text-xs text-slate-500 hover:bg-amber-50 rounded">Cancel</button>
+                          <button onClick={() => updateEnquiryNote(enquiry.id)} className="px-3 py-1 text-xs text-amber-700 bg-amber-100 hover:bg-amber-200 rounded font-medium">Save Note</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex justify-between items-start gap-4">
+                        <p className="text-sm text-slate-600 italic whitespace-pre-wrap flex-1">
+                          {enquiry.admin_notes ? `Note: ${enquiry.admin_notes}` : <span className="text-slate-400">No internal notes</span>}
+                        </p>
+                        <div className="flex gap-2 items-center">
+                          <button 
+                            onClick={() => { setEditingNoteId(enquiry.id); setEditNoteContent(enquiry.admin_notes || ''); }} 
+                            className="text-xs text-amber-600 hover:text-amber-700 flex items-center gap-1 shrink-0"
+                          >
+                            <Edit2 className="w-3 h-3" /> {enquiry.admin_notes ? 'Edit' : 'Add Note'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!showEnquiries && !showSettings && (
+        selectedProperty ? (
         <div className="space-y-8 max-w-6xl mx-auto">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -681,7 +959,7 @@ export default function ManagementPage() {
             )}
           </div>
         </div>
-      )}
+      ))}
     </div>
   );
 }
