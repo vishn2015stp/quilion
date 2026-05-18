@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import JioShuffleGallery from '@/components/JioShuffleGallery';
+import EnquiryButton from '@/components/EnquiryButton';
 import Link from 'next/link';
 import { ArrowLeft, Mail, Phone, MessageCircle } from 'lucide-react';
 
@@ -74,6 +75,7 @@ export default async function PropertyPage({ params }: { params: Promise<{ slug:
           </div>
         </div>
       </section>
+      <EnquiryButton />
     </main>
   );
 }
