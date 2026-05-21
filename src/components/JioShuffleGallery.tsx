@@ -18,30 +18,26 @@ export type PropertyItem = {
 };
 
 type JioShuffleGalleryProps = {
-  initialItems: any[];
+  initialItems: PropertyItem[];
   mode?: 'folders' | 'photos';
+  propertyLocationUrl?: string;
 };
 
 const isVideoUrl = (url?: string) => url?.match(/\.(mp4|webm|ogg|mov)(\?.*)?$/i);
 
-export default function JioShuffleGallery({ initialItems, mode = 'photos' }: JioShuffleGalleryProps) {
-  const [items, setItems] = useState(initialItems);
-  const [isCoolingDown, setIsCoolingDown] = useState(false);
+export default function JioShuffleGallery({ initialItems, mode = 'photos', propertyLocationUrl }: JioShuffleGalleryProps) {
+  const [items, setItems] = useState<PropertyItem[]>(initialItems);
+  const [prevInitialItems, setPrevInitialItems] = useState<PropertyItem[]>(initialItems);
 
-  useEffect(() => {
+  if (initialItems !== prevInitialItems) {
     setItems(initialItems);
-  }, [initialItems]);
+    setPrevInitialItems(initialItems);
+  }
+
+  const [isCoolingDown, setIsCoolingDown] = useState(false);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const router = useRouter();
   const isDragging = useRef(false);
-
-  if (items.length === 0) {
-    return (
-      <div className="w-full flex items-center justify-center min-h-[400px] border border-white/20 rounded-3xl bg-white/40 backdrop-blur-md shadow-sm">
-        <p className="text-charcoal-700 font-light font-serif">No items found.</p>
-      </div>
-    );
-  }
 
   const handleShuffle = (direction: 'next' | 'prev' = 'next') => {
     setItems((prev) => {
@@ -81,11 +77,11 @@ export default function JioShuffleGallery({ initialItems, mode = 'photos' }: Jio
     }
   };
 
-  const handleTopClick = (item: any) => {
+  const handleTopClick = (item: PropertyItem) => {
     if (mode === 'folders') {
       router.push(`/property/${item.slug}`);
     } else {
-      setZoomedImage(item.image_url || item.cover_image_url);
+      setZoomedImage(item.image_url || item.cover_image_url || null);
     }
   };
 
@@ -106,8 +102,15 @@ export default function JioShuffleGallery({ initialItems, mode = 'photos' }: Jio
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomedImage]);
+
+  if (items.length === 0) {
+    return (
+      <div className="w-full flex items-center justify-center min-h-[400px] border border-white/20 rounded-3xl bg-white/40 backdrop-blur-md shadow-sm">
+        <p className="text-charcoal-700 font-light font-serif">No items found.</p>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -201,14 +204,14 @@ export default function JioShuffleGallery({ initialItems, mode = 'photos' }: Jio
                         {badge}
                       </span>
                     )}
-                    {isTop && mode === 'folders' && item.location_url && (
+                    {isTop && (mode === 'folders' ? item.location_url : propertyLocationUrl) && (
                       <div 
                         className={`pointer-events-auto px-3 py-1 w-max text-xs font-semibold uppercase tracking-wider rounded-full border backdrop-blur-md flex items-center gap-1 cursor-pointer shadow-sm transition-all duration-300 font-sans ${
                           mode === 'folders' ? 'text-emerald-900 bg-emerald-100/50 border-emerald-500/30 hover:bg-emerald-200/50 hover:border-emerald-500/50 hover:text-emerald-950' : 'text-emerald-50 bg-emerald-900/50 border-emerald-500/50 hover:bg-emerald-800/80 hover:border-emerald-400'
                         }`}
                         onClick={(e) => {
                           e.stopPropagation();
-                          window.open(item.location_url, '_blank');
+                          window.open(mode === 'folders' ? item.location_url : propertyLocationUrl, '_blank');
                         }}
                       >
                         <MapPin className="w-3 h-3" /> Map
@@ -225,7 +228,7 @@ export default function JioShuffleGallery({ initialItems, mode = 'photos' }: Jio
                 {isTop && mode === 'photos' && (
                   <div className="absolute top-6 right-6 z-30 flex gap-4">
                     <button
-                      onClick={(e) => { e.stopPropagation(); setZoomedImage(imageUrl); }}
+                      onClick={(e) => { e.stopPropagation(); setZoomedImage(imageUrl || null); }}
                       className="p-3 rounded-full bg-white/80 hover:bg-emerald-700 border border-white/40 hover:border-emerald-500 text-emerald-900 hover:text-white shadow-md hover:shadow-lg hover:-translate-y-1 backdrop-blur-md transition-all duration-300 cursor-pointer pointer-events-auto"
                     >
                       <Maximize2 className="w-5 h-5" />

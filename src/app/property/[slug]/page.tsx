@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 import JioShuffleGallery from '@/components/JioShuffleGallery';
 import EnquiryButton from '@/components/EnquiryButton';
 import Link from 'next/link';
-import { ArrowLeft, Mail, Phone, MessageCircle } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, MessageCircle, MapPin } from 'lucide-react';
 
 // Force dynamic rendering to ensure fresh data from Supabase
 export const dynamic = 'force-dynamic';
@@ -12,7 +12,7 @@ export default async function PropertyPage({ params }: { params: Promise<{ slug:
   
   // Fetch property and gallery items in parallel
   const [propRes, galleryRes] = await Promise.all([
-    supabase.from('properties').select('name, contact_email, contact_phone, contact_whatsapp').eq('slug', slug).single(),
+    supabase.from('properties').select('name, contact_email, contact_phone, contact_whatsapp, location_url').eq('slug', slug).single(),
     supabase.from('gallery_metadata').select('*').eq('property_type', slug).order('created_at', { ascending: false })
   ]);
 
@@ -39,6 +39,11 @@ export default async function PropertyPage({ params }: { params: Promise<{ slug:
           
           {/* Property Contact Info */}
           <div className="flex items-center gap-3">
+            {propRes.data?.location_url && (
+              <a href={propRes.data.location_url} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-white/60 border border-ivory-300 hover:border-emerald-500 text-emerald-900 hover:text-emerald-700 shadow-sm transition-all hover:-translate-y-1" title="Location Map">
+                <MapPin className="w-4 h-4" />
+              </a>
+            )}
             {propRes.data?.contact_email && (
               <a href={`mailto:${propRes.data.contact_email}`} className="p-2 rounded-full bg-white/60 border border-ivory-300 hover:border-emerald-500 text-emerald-900 hover:text-emerald-700 shadow-sm transition-all hover:-translate-y-1" title="Email">
                 <Mail className="w-4 h-4" />
@@ -70,7 +75,7 @@ export default async function PropertyPage({ params }: { params: Promise<{ slug:
                 No photos found
               </div>
             ) : (
-              <JioShuffleGallery initialItems={items} mode="photos" />
+              <JioShuffleGallery initialItems={items} mode="photos" propertyLocationUrl={propRes.data?.location_url || undefined} />
             )}
           </div>
         </div>
