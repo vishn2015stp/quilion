@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { UploadCloud, Loader2, CheckCircle2 } from 'lucide-react';
-import imageCompression from 'browser-image-compression';
 import { supabase } from '@/lib/supabase';
 import { PropertyItem } from './JioShuffleGallery';
 
@@ -45,18 +44,7 @@ export default function Uploader({ propertySlug, onSuccess }: UploaderProps = {}
     setStatus('idle');
 
     try {
-      let uploadFile = file;
-      const isVideo = file.type.startsWith('video/');
-
-      if (!isVideo) {
-        // 1. Compress Image (Target: < 1MB)
-        const options = {
-          maxSizeMB: 0.9,
-          maxWidthOrHeight: 1920,
-          useWebWorker: true,
-        };
-        uploadFile = await imageCompression(file, options);
-      }
+      const uploadFile = file;
 
       // 2. Upload to Supabase Storage
       const fileName = `${propertyType}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '')}`;

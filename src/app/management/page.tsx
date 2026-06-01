@@ -5,7 +5,6 @@ import Uploader from '@/components/Uploader';
 import { supabase } from '@/lib/supabase';
 import { Lock, Plus, LogOut, Image as ImageIcon, Trash2, Edit2, Check, X, ArrowLeft, Settings, Loader2, Inbox, RefreshCw } from 'lucide-react';
 import Image from 'next/image';
-import imageCompression from 'browser-image-compression';
 import { useRouter } from 'next/navigation';
 
 type Property = {
@@ -217,15 +216,8 @@ export default function ManagementPage() {
   };
 
   const uploadCoverImage = async (file: File, slug: string) => {
-    let uploadFile = file;
-    const isVideoFile = file.type.startsWith('video/');
-
-    if (!isVideoFile) {
-      const options = { maxSizeMB: 0.9, maxWidthOrHeight: 1920, useWebWorker: true };
-      uploadFile = await imageCompression(file, options);
-    }
     const fileName = `${slug}/cover-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '')}`;
-    const { error: storageError } = await supabase.storage.from('gallery').upload(fileName, uploadFile, { cacheControl: '3600', upsert: false });
+    const { error: storageError } = await supabase.storage.from('gallery').upload(fileName, file, { cacheControl: '3600', upsert: false });
     if (storageError) throw storageError;
     const { data: { publicUrl } } = supabase.storage.from('gallery').getPublicUrl(fileName);
     return publicUrl;
